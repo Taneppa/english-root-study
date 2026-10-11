@@ -2,7 +2,6 @@ import random
 import streamlit as st
 from google import genai
 from google.genai import errors
-from google.genai import types
 
 # ページ基本設定
 st.set_page_config(
@@ -11,7 +10,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- プリセットデータ（最初から即時0秒で表示できる単語） ---
+# --- プリセットデータ（トップ表示用の即時0秒データ） ---
 PRESET_ANALYSIS = {
     "predict": """### 📌 【predict】の和訳と意味
 - **和訳**: 予測する、予言する
@@ -56,18 +55,15 @@ PRESET_ANALYSIS = {
 - **import** (輸入する): 接頭辞 `im-`（中に）＋ `port`（運ぶ）"""
 }
 
-# APIキーの取得とクライアント初期化（15秒のタイムアウトを設定）
+# APIキーの取得とクライアント初期化
 try:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
-    client = genai.Client(
-        api_key=gemini_api_key,
-        http_options=types.HttpOptions(timeout=15000)  # 15秒応答がなければタイムアウト
-    )
+    client = genai.Client(api_key=gemini_api_key)
 except KeyError:
     st.error("APIキーが設定されていません。StreamlitのSecrets設定を確認してください。")
     st.stop()
 
-# --- セッション状態（キャッシュ）の初期化 ---
+# --- セッション状態の初期化 ---
 if "analysis_cache" not in st.session_state:
     st.session_state.analysis_cache = PRESET_ANALYSIS.copy()
 
@@ -75,29 +71,27 @@ if "current_word" not in st.session_state:
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
 
 
-# Gemini APIから単語の構造解析を取得する関数
+# 高速応答用に最適化したGemini API呼び出し関数
 def fetch_analysis(word: str) -> str:
+    # 生成時間を短縮するため、プロンプトを要点に絞る
     prompt = f"""
-英単語 「{word}」 について、語源や構造（語幹・接頭辞・接尾辞など）を学習するための解説を作成してください。
-
-以下のフォーマットに従って、わかりやすい日本語のマークダウン形式で出力してください：
+英単語「{word}」の語源・構造解析を以下のフォーマットで短く簡潔に解説してください。
 
 ### 📌 【{word}】の和訳と意味
-- **和訳**: （主な和訳）
-- **概要**: （簡単な意味やコアなニュアンスの説明）
+- **和訳**: 
+- **概要**: 
 
 ### 🧩 成り立ち（パーツ分解）
-- **接頭辞 (Prefix)**: （該当する場合：パーツ名と意味。なければ「なし」）
-- **語根・語幹 (Root/Stem)**: （パーツ名と意味）
-- **接尾辞 (Suffix)**: （該当する場合：パーツ名と品詞・機能。なければ「なし」）
-- **全体の成り立ち**: （各パーツがどう組み合わさって現在の意味になっているかの説明）
+- **接頭辞**: 
+- **語根・語幹**: 
+- **接尾辞**: 
+- **全体の成り立ち**: 
 
 ### 🔗 共通パーツを持つ他の英単語
-- **単語1** (和訳): 共通パーツと解説
-- **単語2** (和訳): 共通パーツと解説
+- **単語1** (和訳): 解説
+- **単語2** (和訳): 解説
 """
     try:
-        # 指定モデル gemini-3.8-flash を使用して一括取得
         response = client.models.generate_content(
             model="gemini-3.8-flash",
             contents=prompt,
@@ -106,7 +100,7 @@ def fetch_analysis(word: str) -> str:
     except errors.APIError as e:
         return f"⚠️ APIエラーが発生しました: {e}"
     except Exception as e:
-        return f"⚠️ 応答タイムアウトまたはエラーが発生しました (15秒超過): {e}"
+        return f"⚠️ エラーが発生しました: {e}"
 
 
 # --- UI構成 ---
@@ -123,11 +117,11 @@ if st.button("🎲 別のランダム例を見る"):
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
     st.rerun()
 
-# 解析結果の表示 (キャッシュにあれば即表示、なければ新規取得)
+# 解析結果の表示 (キャッシュにあれば即表示、無ければAPI取得)
 if word in st.session_state.analysis_cache:
     st.markdown(st.session_state.analysis_cache[word])
 else:
-    with st.spinner(f"「{word}」の構造を Gemini API で解析中（最大15秒）..."):
+    with st.spinner(f"「{word}」の構造を解析中..."):
         result_text = fetch_analysis(word)
         st.session_state.analysis_cache[word] = result_text
     st.markdown(result_text)
