@@ -113,4 +113,76 @@ def fetch_from_gemini(word: str) -> str:
 以下のフォーマットに従って、わかりやすい日本語のマークダウン形式で出力してください：
 
 ### 📌 【{word}】の和訳と意味
-- **
+- **和訳**: （主な和訳）
+- **概要**: （簡単な意味やコアなニュアンスの説明）
+
+### 🧩 成り立ち（パーツ分解）
+- **接頭辞 (Prefix)**: （該当する場合：パーツ名と意味。なければ「なし」）
+- **語根・語幹 (Root/Stem)**: （パーツ名と意味）
+- **接尾辞 (Suffix)**: （該当する場合：パーツ名と品詞・機能。なければ「なし」）
+- **全体の成り立ち**: （各パーツがどう組み合わさって現在の意味になっているかの説明）
+
+### 🔗 共通パーツを持つ他の英単語
+- **単語1** (和訳): 共通パーツ（例：語根 -xxx）と解説
+- **単語2** (和訳): 共通パーツと解説
+- **単語3** (和訳): 共通パーツと解説
+"""
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=prompt,
+        )
+        return response.text
+    except errors.APIError as e:
+        return f"⚠️ APIエラーが発生しました: {e}"
+    except Exception as e:
+        return f"⚠️ エラーが発生しました: {e}"
+
+# 単語解析の判定ルーティング関数
+def get_word_analysis(word: str) -> str:
+    word_clean = word.strip().lower()
+    # 1. プリセットにある単語はAPIを叩かず即座に返却 (0秒)
+    if word_clean in PRESET_ANALYSIS:
+        return PRESET_ANALYSIS[word_clean]
+    # 2. プリセットにない単語のみGemini APIを呼び出す
+    return fetch_from_gemini(word_clean)
+
+# --- UI構成 ---
+st.title("🔤 英単語構造学習アプリ")
+st.caption("接頭辞・語根・接尾辞の成り立ちから英単語のコア意味を学びます。")
+
+# セッション初期化
+if "current_word" not in st.session_state:
+    st.session_state.current_word = random.choice(SAMPLE_WORDS)
+
+# --- メイン表示エリア ---
+st.subheader(f"📖 表示中の単語: `{st.session_state.current_word}`")
+
+# ランダム切替ボタン
+if st.button("🎲 別のランダム例を見る"):
+    st.session_state.current_word = random.choice(SAMPLE_WORDS)
+    st.rerun()
+
+# 解析結果の取得・表示 (プリセット品は一瞬で描画)
+analysis_content = get_word_analysis(st.session_state.current_word)
+st.markdown(analysis_content)
+
+st.divider()
+
+# --- ページ下部：検索エリア ---
+st.subheader("🔎 英単語を検索する")
+
+with st.form(key="search_form", clear_on_submit=True):
+    search_input = st.text_input("調べたい英単語を入力してください（半角英字）", placeholder="例: preview, bisect, incredible")
+    submit_button = st.form_submit_button("構造を解析する")
+
+if submit_button:
+    target_word = search_input.strip().lower()
+    if target_word:
+        st.session_state.current_word = target_word
+        if target_word not in PRESET_ANALYSIS:
+            with st.spinner(f"「{target_word}」の構造をGemini APIで解析中..."):
+                _ = fetch_from_gemini(target_word)
+        st.rerun()
+    else:
+        st.warning("英単語を入力してください。")
