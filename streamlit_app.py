@@ -10,7 +10,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- プリセットデータ（トップ表示用の即時0秒データ） ---
+# --- プリセットデータ（API消費なしで即時表示する初期データ） ---
 PRESET_ANALYSIS = {
     "predict": """### 📌 【predict】の和訳と意味
 - **和訳**: 予測する、予言する
@@ -71,9 +71,8 @@ if "current_word" not in st.session_state:
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
 
 
-# 高速応答用に最適化したGemini API呼び出し関数
+# 実在する標準モデル (gemini-2.5-flash) を使用した問い合わせ関数
 def fetch_analysis(word: str) -> str:
-    # 生成時間を短縮するため、プロンプトを要点に絞る
     prompt = f"""
 英単語「{word}」の語源・構造解析を以下のフォーマットで短く簡潔に解説してください。
 
@@ -92,12 +91,21 @@ def fetch_analysis(word: str) -> str:
 - **単語2** (和訳): 解説
 """
     try:
+        # 正しいモデル名 gemini-2.5-flash を指定
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
         )
         return response.text
     except errors.APIError as e:
+        err_msg = str(e)
+        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+            return (
+                "⚠️ **APIの利用制限（429 Quota Exceeded）に達しました。**\n\n"
+                "Google AI Studioの無料枠（Free Tier）の上限に達したため、現在通信が制限されています。\n"
+                "- 数分〜時間を置いてから再度検索してください。\n"
+                "- Google AI Studioで従量課金（Pay-as-you-go）を設定すると、無制限で利用可能になります。"
+            )
         return f"⚠️ APIエラーが発生しました: {e}"
     except Exception as e:
         return f"⚠️ エラーが発生しました: {e}"
@@ -123,7 +131,8 @@ if word in st.session_state.analysis_cache:
 else:
     with st.spinner(f"「{word}」の構造を解析中..."):
         result_text = fetch_analysis(word)
-        st.session_state.analysis_cache[word] = result_text
+        if not result_text.startswith("⚠️"):
+            st.session_state.analysis_cache[word] = result_text
     st.markdown(result_text)
 
 st.divider()
