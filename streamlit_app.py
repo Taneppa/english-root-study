@@ -56,8 +56,9 @@ def analyze_word(word: str) -> str:
 - **単語3** (和訳): 共通パーツと解説
 """
     try:
+        # 必ず最新の gemini-3.8-flash を使用する
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=prompt,
         )
         return response.text
@@ -78,34 +79,4 @@ if "analysis_result" not in st.session_state:
 st.title("🔤 英単語構造学習アプリ")
 st.caption("接頭辞・語根・接尾辞の成り立ちから英単語のコア意味を学びます。")
 
-# --- メイン表示エリア (ランダム単語 / 検索結果の例) ---
-st.subheader(f"📖 表示中の単語: `{st.session_state.current_word}`")
-
-# ランダム切替ボタン（手動で別の例を見たい場合用）
-if st.button("🎲 別のランダム単語を見る"):
-    st.session_state.current_word = random.choice(SAMPLE_WORDS)
-    with st.spinner("解析中..."):
-        st.session_state.analysis_result = analyze_word(st.session_state.current_word)
-    st.rerun()
-
-# 解析結果表示
-st.markdown(st.session_state.analysis_result)
-
-st.divider()
-
-# --- ページ下部：検索エリア ---
-st.subheader("🔎 英単語を検索する")
-
-with st.form(key="search_form", clear_on_submit=True):
-    search_input = st.text_input("調べたい英単語を入力してください（半角英字）", placeholder="例: preview, bisect, incredible")
-    submit_button = st.form_submit_button("構造を解析する")
-
-if submit_button:
-    target_word = search_input.strip().lower()
-    if target_word:
-        st.session_state.current_word = target_word
-        with st.spinner(f"「{target_word}」の構造を解析中..."):
-            st.session_state.analysis_result = analyze_word(target_word)
-        st.rerun()
-    else:
-        st.warning("英単語を入力してください。")
+# --- メイン表示エリア (ランダム
