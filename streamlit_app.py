@@ -1,4 +1,5 @@
 import random
+import time
 import streamlit as st
 from google import genai
 from google.genai import errors
@@ -10,7 +11,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- プリセットデータ（API消費なしで即時表示する初期データ） ---
+# --- プリセットデータ（初期表示・高速表示用） ---
 PRESET_ANALYSIS = {
     "predict": """### 📌 【predict】の和訳と意味
 - **和訳**: 予測する、予言する
@@ -55,15 +56,22 @@ PRESET_ANALYSIS = {
 - **import** (輸入する): 接頭辞 `im-`（中に）＋ `port`（運ぶ）"""
 }
 
-# APIキーの取得とクライアント初期化
+# 利用可能モデルのフォールバック候補リスト
+MODEL_CANDIDATES = [
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-lite",
+    "gemini-3.8-pro",
+]
+
+# APIキー取得とクライアント初期化
 try:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
     client = genai.Client(api_key=gemini_api_key)
 except KeyError:
-    st.error("APIキーが設定されていません。StreamlitのSecrets設定を確認してください。")
+    st.error("APIキーが設定されていません。Streamlit Secretsに 'GEMINI_API_KEY' を設定してください。")
     st.stop()
 
-# --- セッション状態の初期化 ---
+# セッションステート初期化
 if "analysis_cache" not in st.session_state:
     st.session_state.analysis_cache = PRESET_ANALYSIS.copy()
 
@@ -71,61 +79,64 @@ if "current_word" not in st.session_state:
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
 
 
-# 実在する標準モデル (gemini-2.5-flash) を使用した問い合わせ関数
 def fetch_analysis(word: str) -> str:
     prompt = f"""
-英単語「{word}」の語源・構造解析を以下のフォーマットで短く簡潔に解説してください。
+英単語「{word}」の語源・構造解析を以下のフォーマットに従って簡潔に解説してください。
 
 ### 📌 【{word}】の和訳と意味
 - **和訳**: 
 - **概要**: 
 
 ### 🧩 成り立ち（パーツ分解）
-- **接頭辞**: 
-- **語根・語幹**: 
-- **接尾辞**: 
+- **接頭辞 (Prefix)**: 
+- **語根・語幹 (Root/Stem)**: 
+- **接尾辞 (Suffix)**: 
 - **全体の成り立ち**: 
 
 ### 🔗 共通パーツを持つ他の英単語
 - **単語1** (和訳): 解説
 - **単語2** (和訳): 解説
 """
-    try:
-        # 正しいモデル名 gemini-2.5-flash を指定
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        return response.text
-    except errors.APIError as e:
-        err_msg = str(e)
-        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-            return (
-                "⚠️ **APIの利用制限（429 Quota Exceeded）に達しました。**\n\n"
-                "Google AI Studioの無料枠（Free Tier）の上限に達したため、現在通信が制限されています。\n"
-                "- 数分〜時間を置いてから再度検索してください。\n"
-                "- Google AI Studioで従量課金（Pay-as-you-go）を設定すると、無制限で利用可能になります。"
+    last_error_details = ""
+
+    for model_name in MODEL_CANDIDATES:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
             )
-        return f"⚠️ APIエラーが発生しました: {e}"
-    except Exception as e:
-        return f"⚠️ エラーが発生しました: {e}"
+            return response.text
+        except errors.APIError as e:
+            err_msg = str(e)
+            last_error_details = err_msg
+            # 429(制限超過) または 503(混雑) の場合は次のモデルで再試行
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "503" in err_msg:
+                continue
+            else:
+                return f"⚠️ APIエラーが発生しました ({model_name}): {e}"
+        except Exception as e:
+            return f"⚠️ 予期せぬエラーが発生しました: {e}"
+
+    return (
+        "⚠️ **すべてのGemini 3.8モデル候補で一時的な制限または高負荷が発生しました。**\n\n"
+        "- 少し時間を置いてから再度検索してください。\n"
+        "- Google AI Studioで従量課金（Pay-as-you-go）を設定することで制限なく即座にご利用可能です。\n"
+        f"（詳細: {last_error_details}）"
+    )
 
 
-# --- UI構成 ---
+# UI表示
 st.title("🔤 英単語構造学習アプリ")
 st.caption("接頭辞・語根・接尾辞の成り立ちから英単語のコア意味を学びます。")
 
 word = st.session_state.current_word
 
-# メイン表示エリア
 st.subheader(f"📖 表示中の単語: `{word}`")
 
-# ランダム切替ボタン
 if st.button("🎲 別のランダム例を見る"):
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
     st.rerun()
 
-# 解析結果の表示 (キャッシュにあれば即表示、無ければAPI取得)
 if word in st.session_state.analysis_cache:
     st.markdown(st.session_state.analysis_cache[word])
 else:
@@ -137,7 +148,6 @@ else:
 
 st.divider()
 
-# --- ページ下部：検索エリア ---
 st.subheader("🔎 英単語を検索する")
 
 search_input = st.text_input(
