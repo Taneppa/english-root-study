@@ -56,10 +56,9 @@ PRESET_ANALYSIS = {
 - **import** (輸入する): 接頭辞 `im-`（中に）＋ `port`（運ぶ）"""
 }
 
-# 利用可能モデルのフォールバック候補リスト
+# 実在するモデル候補（flashで制限超過・通信不調が発生した場合はproに自動切換）
 MODEL_CANDIDATES = [
     "gemini-3.8-flash",
-    "gemini-3.8-flash-lite",
     "gemini-3.8-pro",
 ]
 
@@ -109,8 +108,8 @@ def fetch_analysis(word: str) -> str:
         except errors.APIError as e:
             err_msg = str(e)
             last_error_details = err_msg
-            # 429(制限超過) または 503(混雑) の場合は次のモデルで再試行
-            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "503" in err_msg:
+            # 429(制限超過)、503(混雑)、404(未存在) の場合は次の候補モデルへ自動フォールバック
+            if any(code in err_msg for code in ["429", "RESOURCE_EXHAUSTED", "503", "404", "NOT_FOUND"]):
                 continue
             else:
                 return f"⚠️ APIエラーが発生しました ({model_name}): {e}"
@@ -118,8 +117,8 @@ def fetch_analysis(word: str) -> str:
             return f"⚠️ 予期せぬエラーが発生しました: {e}"
 
     return (
-        "⚠️ **すべてのGemini 3.8モデル候補で一時的な制限または高負荷が発生しました。**\n\n"
-        "- 少し時間を置いてから再度検索してください。\n"
+        "⚠️ **Gemini APIの利用制限（429 Quota Exceeded）または高負荷状態です。**\n\n"
+        "- 無料枠（Free Tier）の制限に達しているため、時間を置いて再度お試しください。\n"
         "- Google AI Studioで従量課金（Pay-as-you-go）を設定することで制限なく即座にご利用可能です。\n"
         f"（詳細: {last_error_details}）"
     )
