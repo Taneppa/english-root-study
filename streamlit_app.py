@@ -3,7 +3,7 @@ import streamlit as st
 from google import genai
 from google.genai import errors
 
-# ページ基本設定 (必ず一番上に書く必要があります)
+# ページ基本設定
 st.set_page_config(
     page_title="英単語構造学習アプリ",
     page_icon="🔤",
@@ -49,7 +49,7 @@ def analyze_word(word: str) -> str:
 """
     try:
         response = client.models.generate_content(
-            model="gemini-3.8-flash",  # 指定通り gemini-3.8-flash を使用
+            model="gemini-3.8-flash",
             contents=prompt,
         )
         return response.text
@@ -58,38 +58,40 @@ def analyze_word(word: str) -> str:
     except Exception as e:
         return f"⚠️ エラーが発生しました: {e}"
 
-# ==========================================
-# ここからUIの描画 (先に画面を表示させる)
-# ==========================================
+
+# --- UI描画 ---
 st.title("🔤 英単語構造学習アプリ")
 st.caption("接頭辞・語根・接尾辞の成り立ちから英単語のコア意味を学びます。")
 
-# セッション状態の初期化 (単語のみ先に決定)
+# セッション状態の初期化
 if "current_word" not in st.session_state:
     st.session_state.current_word = random.choice(SAMPLE_WORDS)
 
-# --- メイン表示エリア ---
+# メイン表示エリア
 st.subheader(f"📖 表示中の単語: `{st.session_state.current_word}`")
 
 # ランダム切替ボタン
 if st.button("🎲 別のランダム単語を見る"):
     st.session_state.current_word = random.choice(SAMPLE_WORDS)
-    # 結果を一度リセットして再取得させる
     if "analysis_result" in st.session_state:
         del st.session_state.analysis_result
     st.rerun()
 
-# ⚠️ UIを表示した「後」で、解析結果がない場合のみAPI通信を実行する
+# ⚠️ セッション内に古いエラー情報が残っている場合は自動でクリアして再取得させる
+if "analysis_result" in st.session_state and st.session_state.analysis_result.startswith("⚠️"):
+    del st.session_state.analysis_result
+
+# 解析実行
 if "analysis_result" not in st.session_state:
     with st.spinner(f"「{st.session_state.current_word}」の構造を解析中..."):
         st.session_state.analysis_result = analyze_word(st.session_state.current_word)
 
-# 解析結果表示
+# 解析結果の表示
 st.markdown(st.session_state.analysis_result)
 
 st.divider()
 
-# --- ページ下部：検索エリア ---
+# ページ下部：検索エリア
 st.subheader("🔎 英単語を検索する")
 
 with st.form(key="search_form", clear_on_submit=True):
