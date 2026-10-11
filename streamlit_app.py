@@ -1,18 +1,3 @@
-数分間待っても結果が出ずフリーズしてしまう原因は、Streamlit Cloudの通信環境において**ストリーミング処理（`generate_content_stream`）がタイムアウト設定なしで呼び出され、通信の応答待ちで処理が無限ブロック（フリーズ）していたため**です。
-
-以下の対策を施した完全な全体コードに差し替えてください。
-
-### 修正のポイント
-
-1. **15秒のタイムアウト設定を追加**: `HttpOptions(timeout=15000)` を設定し、万が一Googleのサーバーからの応答が遅い場合でも数分間待たされず、15秒で即座にエラー/再試行へ切り替わるようにしました。
-2. **一括取得（`generate_content`）に変更**: Streamlit Cloud環境で動作が不安定になりがちなストリーミングから、確実に一括で受け取る方式に変更しました。
-3. **`st.form` の撤去**: フォーム送信による画面のレンダリング遅延を防ぐため、通常のボタン・入力欄構成に修正しました。
-
----
-
-### 全体コード (`app.py` または `streamlit_app.py`)
-
-```python
 import random
 import streamlit as st
 from google import genai
@@ -165,5 +150,3 @@ if st.button("構造を解析する", type="primary"):
         st.rerun()
     else:
         st.warning("英単語を入力してください。")
-
-```
