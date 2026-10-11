@@ -1,5 +1,7 @@
 # 🔤 英単語構造学習アプリ (English Word Structure Learning App)
 
+🌐 **実際のアプリはこちらからお試しいただけます:** [https://chatbot-6uxnifrwjui.streamlit.app/](https://chatbot-6uxnifrwjui.streamlit.app/)
+
 ## 📌 アプリの概要
 
 「英単語構造学習アプリ」は、英単語の意味を単に調べるだけでなく、**その単語の成り立ち（接頭辞・語幹/語根・接尾辞）を分解して解説する**学習サポートツールです。
