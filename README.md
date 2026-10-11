@@ -8,6 +8,8 @@
 
 ## 📷 画面イメージ
 
+<img width="1044" height="1504" alt="image" src="https://github.com/user-attachments/assets/c24f013a-4d42-4374-b453-e7afc766e316" />
+
 ## ✨ 主な機能
 
 1. **構造の可視化と解説**
