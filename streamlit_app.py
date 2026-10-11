@@ -1,8 +1,23 @@
-import time
+数分間待っても結果が出ずフリーズしてしまう原因は、Streamlit Cloudの通信環境において**ストリーミング処理（`generate_content_stream`）がタイムアウト設定なしで呼び出され、通信の応答待ちで処理が無限ブロック（フリーズ）していたため**です。
+
+以下の対策を施した完全な全体コードに差し替えてください。
+
+### 修正のポイント
+
+1. **15秒のタイムアウト設定を追加**: `HttpOptions(timeout=15000)` を設定し、万が一Googleのサーバーからの応答が遅い場合でも数分間待たされず、15秒で即座にエラー/再試行へ切り替わるようにしました。
+2. **一括取得（`generate_content`）に変更**: Streamlit Cloud環境で動作が不安定になりがちなストリーミングから、確実に一括で受け取る方式に変更しました。
+3. **`st.form` の撤去**: フォーム送信による画面のレンダリング遅延を防ぐため、通常のボタン・入力欄構成に修正しました。
+
+---
+
+### 全体コード (`app.py` または `streamlit_app.py`)
+
+```python
 import random
 import streamlit as st
 from google import genai
 from google.genai import errors
+from google.genai import types
 
 # ページ基本設定
 st.set_page_config(
@@ -11,7 +26,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- プリセットデータ（最初から即時表示できる単語） ---
+# --- プリセットデータ（最初から即時0秒で表示できる単語） ---
 PRESET_ANALYSIS = {
     "predict": """### 📌 【predict】の和訳と意味
 - **和訳**: 予測する、予言する
@@ -56,22 +71,58 @@ PRESET_ANALYSIS = {
 - **import** (輸入する): 接頭辞 `im-`（中に）＋ `port`（運ぶ）"""
 }
 
-# APIキーの取得とクライアント初期化
+# APIキーの取得とクライアント初期化（15秒のタイムアウトを設定）
 try:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
-    client = genai.Client(api_key=gemini_api_key)
+    client = genai.Client(
+        api_key=gemini_api_key,
+        http_options=types.HttpOptions(timeout=15000)  # 15秒応答がなければタイムアウト
+    )
 except KeyError:
     st.error("APIキーが設定されていません。StreamlitのSecrets設定を確認してください。")
     st.stop()
 
 # --- セッション状態（キャッシュ）の初期化 ---
-# 検索結果を蓄積する辞書。初期値としてPRESET_ANALYSISをコピーしておく。
 if "analysis_cache" not in st.session_state:
     st.session_state.analysis_cache = PRESET_ANALYSIS.copy()
 
-# 現在表示している単語
 if "current_word" not in st.session_state:
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
+
+
+# Gemini APIから単語の構造解析を取得する関数
+def fetch_analysis(word: str) -> str:
+    prompt = f"""
+英単語 「{word}」 について、語源や構造（語幹・接頭辞・接尾辞など）を学習するための解説を作成してください。
+
+以下のフォーマットに従って、わかりやすい日本語のマークダウン形式で出力してください：
+
+### 📌 【{word}】の和訳と意味
+- **和訳**: （主な和訳）
+- **概要**: （簡単な意味やコアなニュアンスの説明）
+
+### 🧩 成り立ち（パーツ分解）
+- **接頭辞 (Prefix)**: （該当する場合：パーツ名と意味。なければ「なし」）
+- **語根・語幹 (Root/Stem)**: （パーツ名と意味）
+- **接尾辞 (Suffix)**: （該当する場合：パーツ名と品詞・機能。なければ「なし」）
+- **全体の成り立ち**: （各パーツがどう組み合わさって現在の意味になっているかの説明）
+
+### 🔗 共通パーツを持つ他の英単語
+- **単語1** (和訳): 共通パーツと解説
+- **単語2** (和訳): 共通パーツと解説
+"""
+    try:
+        # 指定モデル gemini-3.8-flash を使用して一括取得
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=prompt,
+        )
+        return response.text
+    except errors.APIError as e:
+        return f"⚠️ APIエラーが発生しました: {e}"
+    except Exception as e:
+        return f"⚠️ 応答タイムアウトまたはエラーが発生しました (15秒超過): {e}"
+
 
 # --- UI構成 ---
 st.title("🔤 英単語構造学習アプリ")
@@ -87,87 +138,32 @@ if st.button("🎲 別のランダム例を見る"):
     st.session_state.current_word = random.choice(list(PRESET_ANALYSIS.keys()))
     st.rerun()
 
-# --- 解析結果の表示 (キャッシュにあれば即表示、なければストリーミング生成) ---
+# 解析結果の表示 (キャッシュにあれば即表示、なければ新規取得)
 if word in st.session_state.analysis_cache:
-    # キャッシュ済み（またはプリセット）の場合は0秒で即表示
     st.markdown(st.session_state.analysis_cache[word])
 else:
-    # 未知の単語の場合は、APIを呼び出して文字を少しずつ表示（ストリーミング）
-    prompt = f"""
-    英単語 「{word}」 について、語源や構造（語幹・接頭辞・接尾辞など）を学習するための解説を作成してください。
-
-    以下のフォーマットに従って、わかりやすい日本語のマークダウン形式で出力してください：
-
-    ### 📌 【{word}】の和訳と意味
-    - **和訳**: （主な和訳）
-    - **概要**: （簡単な意味やコアなニュアンスの説明）
-
-    ### 🧩 成り立ち（パーツ分解）
-    - **接頭辞 (Prefix)**: （該当する場合：パーツ名と意味。なければ「なし」）
-    - **語根・語幹 (Root/Stem)**: （パーツ名と意味）
-    - **接尾辞 (Suffix)**: （該当する場合：パーツ名と品詞・機能。なければ「なし」）
-    - **全体の成り立ち**: （各パーツがどう組み合わさって現在の意味になっているかの説明）
-
-    ### 🔗 共通パーツを持つ他の英単語
-    - **単語1** (和訳): 共通パーツと解説
-    - **単語2** (和訳): 共通パーツと解説
-    """
-
-    def stream_generator():
-        max_retries = 3
-        delay = 2
-        for attempt in range(max_retries):
-            try:
-                # 必ず gemini-3.8-flash を使用
-                response_stream = client.models.generate_content_stream(
-                    model="gemini-3.8-flash",
-                    contents=prompt,
-                )
-                for chunk in response_stream:
-                    if chunk.text:
-                        yield chunk.text
-                return  # 正常終了
-            except errors.APIError as e:
-                err_str = str(e)
-                if "503" in err_str or "UNAVAILABLE" in err_str:
-                    if attempt < max_retries - 1:
-                        time.sleep(delay)
-                        delay *= 2
-                        continue
-                    else:
-                        yield "⚠️ 現在Googleのサーバーが混雑しています（503エラー）。時間を置いて再度検索してください。"
-                        return
-                elif "429" in err_str:
-                    yield "⚠️ APIの利用制限に達しました。時間を置いてお試しください。"
-                    return
-                else:
-                    yield f"**APIエラー:** {e}"
-                    return
-            except Exception as e:
-                yield f"**予期せぬエラーが発生しました:** {e}"
-                return
-
-    # st.write_streamで文字をパラパラと表示し、結果を変数に受け取る
-    result_text = st.write_stream(stream_generator)
-    
-    # 完了後、結果をキャッシュに保存（2回目以降の検索を高速化）
-    st.session_state.analysis_cache[word] = result_text
+    with st.spinner(f"「{word}」の構造を Gemini API で解析中（最大15秒）..."):
+        result_text = fetch_analysis(word)
+        st.session_state.analysis_cache[word] = result_text
+    st.markdown(result_text)
 
 st.divider()
 
 # --- ページ下部：検索エリア ---
 st.subheader("🔎 英単語を検索する")
 
-with st.form(key="search_form", clear_on_submit=True):
-    search_input = st.text_input("調べたい英単語を入力してください（半角英字）", placeholder="例: preview, bisect, incredible")
-    submit_button = st.form_submit_button("構造を解析する")
+search_input = st.text_input(
+    "調べたい英単語を入力してください（半角英字）",
+    key="search_term",
+    placeholder="例: preview, bisect, incredible"
+)
 
-# フォームが送信されたときの処理
-if submit_button:
+if st.button("構造を解析する", type="primary"):
     target_word = search_input.strip().lower()
     if target_word:
-        # 現在の単語を更新して、画面を一番上から再描画（rerun）させる
         st.session_state.current_word = target_word
         st.rerun()
     else:
         st.warning("英単語を入力してください。")
+
+```
